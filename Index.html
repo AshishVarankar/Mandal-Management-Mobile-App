@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="mr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mandal Manager – मंडळ व्यवस्थापन</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#1b2430;--mu:#667085;--pr:#1f6feb;--bd:#e3e6eb;--ok:#12805c;--wa:#b26a00;--bad:#c0392b;color-scheme:light dark}
+@media(prefers-color-scheme:dark){:root{--bg:#10141a;--card:#1a2029;--tx:#e8ecf1;--mu:#98a2b3;--pr:#5a9bff;--bd:#2b3441;--ok:#3ecf9a;--wa:#f0b04a;--bad:#ff7b6b}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.45 Arial,"Noto Sans Devanagari",sans-serif;padding-bottom:76px}
+header{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:12px 16px;background:var(--card);border-bottom:1px solid var(--bd);position:sticky;top:0;z-index:5}
+h1{font-size:18px;margin:0}main{padding:14px;max-width:760px;margin:auto}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:10px}
+.k{color:var(--mu);font-size:13px}.v{font-size:21px;font-weight:700}.mu{color:var(--mu);font-size:13px}
+button,select,input{font:inherit;color:var(--tx)}input,select{width:100%;padding:12px;border:1px solid var(--bd);border-radius:10px;background:var(--card);margin:4px 0 10px}
+button{padding:12px 16px;border:0;border-radius:10px;background:var(--pr);color:#fff;font-weight:700;cursor:pointer}button.g{background:transparent;color:var(--pr);border:1px solid var(--bd)}button.s{padding:7px 10px;font-size:13px}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--bd)}
+nav button{flex:1;background:none;color:var(--mu);border-radius:0;padding:14px 4px;font-size:13px}nav button.on{color:var(--pr);border-top:3px solid var(--pr)}
+.chip{font-size:12px;font-weight:700;padding:3px 9px;border-radius:99px;border:1px solid currentColor}.paid{color:var(--ok)}.partial{color:var(--wa)}.pending,.bad{color:var(--bad)}
+.row{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.modal{position:fixed;inset:0;background:#0008;display:flex;align-items:center;justify-content:center;padding:16px;z-index:9}.modal .card{width:100%;max-width:420px;margin:0}
+.err{color:var(--bad);font-size:14px;min-height:20px}
+</style></head><body>
+<div id="app"></div><div id="md"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.js"></script>
+<script>
+const SB_URL="https://hvofiustdbhigeycomfi.supabase.co",SB_KEY="sb_publishable_EBRJl43NXlzTYY1JMgcDKA_FpF55Ie4"; // publishable key: safe in the browser. NEVER put the secret / service_role key here.
+const sb=supabase.createClient(SB_URL,SB_KEY);
+let lang="mr";try{lang=localStorage.getItem("lang")||"mr"}catch(e){}
+const h=(a,b)=>lang==="en"?a:b,$=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const inr=n=>"₹"+Number(n||0).toLocaleString("en-IN",{maximumFractionDigits:2}),dt=d=>new Date(d).toLocaleDateString("en-IN"),today=()=>new Date().toISOString().slice(0,10);
+let user=null,prof=null,fy=null,tab="dash",rows=[],q="";
+const canW=()=>prof&&["admin","treasurer"].includes(prof.role),isA=()=>prof&&prof.role==="admin";
+const fail=e=>alert(e&&e.message?e.message:e);
+const ST={paid:["Paid","भरले"],partial:["Partially paid","अंशतः भरले"],pending:["Pending","बाकी"]};
+const METHODS=[["cash","Cash","रोख"],["upi","UPI","UPI"],["bank","Bank transfer","बँक ट्रान्सफर"],["cheque","Cheque","चेक"],["other","Other","इतर"]];
+const mname=m=>{const x=METHODS.find(a=>a[0]===m);return x?h(x[1],x[2]):m};
+
+async function boot(){const{data}=await sb.auth.getSession();user=data.session?data.session.user:null;if(user)await loadProfile();render()}
+async function loadProfile(){
+  prof=(await sb.from("profiles").select("*").eq("id",user.id).maybeSingle()).data;
+  const t=today();fy=((await sb.from("financial_years").select("id,label").lte("start_date",t).gte("end_date",t).limit(1)).data||[])[0]||null}
+async function login(){er.textContent="";const{data,error}=await sb.auth.signInWithPassword({email:em.value.trim(),password:pw.value});
+  if(error){er.textContent=error.message;return}user=data.user;await loadProfile();render()}
+async function logout(){await sb.auth.signOut();user=prof=fy=null;render()}
+const toggleLang=()=>{lang=lang==="en"?"mr":"en";try{localStorage.setItem("lang",lang)}catch(e){}render()};
+const go=k=>{tab=k;render()};
+const shell=b=>`<header><div><h1>${h("Mandal Manager","मंडळ व्यवस्थापक")}</h1><div class="mu">${esc(prof?prof.name+" · "+prof.role:user?user.email:"")}</div></div><div><button class="g s" onclick="toggleLang()">${h("मराठी","English")}</button> <button class="g s" onclick="logout()">${h("Logout","बाहेर पडा")}</button></div></header><main id="m">${b}</main>
+${prof?`<nav>${[["dash",h("Dashboard","डॅशबोर्ड")],["mem",h("Members","सदस्य")],["var",h("Vargani","वर्गणी")]].map(([k,l])=>`<button class="${tab===k?"on":""}" onclick="go('${k}')">${l}</button>`).join("")}</nav>`:""}`;
+
+async function render(){
+  if(!user){app.innerHTML=`<main><div class="card"><h1>${h("Mandal Manager","मंडळ व्यवस्थापक")}</h1><p class="mu">${h("Sign in with the email and password given by the Admin.","Admin ने दिलेला ईमेल व पासवर्ड वापरून लॉगिन करा.")}</p><input id="em" type="email" placeholder="Email" autocomplete="username"><input id="pw" type="password" placeholder="${h("Password","पासवर्ड")}" autocomplete="current-password" onkeydown="if(event.key==='Enter')login()"><div class="err" id="er"></div><button onclick="login()">${h("Sign in","लॉगिन")}</button> <button class="g s" onclick="toggleLang()">${h("मराठी","English")}</button></div></main>`;return}
+  if(!prof){app.innerHTML=shell(`<div class="card">${h("Your login is not linked to a Mandal yet. The first user must run bootstrap_mandal; other users must be added by the Admin (add_user).","तुमचा लॉगिन अजून मंडळाशी जोडलेला नाही. पहिल्या वापरकर्त्याने bootstrap_mandal चालवावे; इतरांना Admin ने add_user ने जोडावे.")}</div>`);return}
+  app.innerHTML=shell(`<p class="mu">…</p>`);
+  try{$("m").innerHTML=tab==="dash"?await dash():tab==="mem"?await mems():await vars()}catch(e){$("m").innerHTML=`<div class="card err">${esc(e.message||e)}</div>`}}
+
+async function dash(){
+  if(!fy)return`<div class="card">${h("No financial year covers today. Ask the Admin to add one.","आजसाठी आर्थिक वर्ष नाही. Admin ला जोडायला सांगा.")}</div>`;
+  const{data:d,error}=await sb.rpc("get_mandal_summary",{p_fy:fy.id});if(error)throw error;
+  const c=(a,b,v,n)=>`<div class="card"><div class="k">${h(a,b)}</div><div class="v">${n?v:inr(v)}</div></div>`;
+  return`<div class="mu">${h("Financial year","आर्थिक वर्ष")} ${esc(fy.label)}</div><div class="grid">${c("Expected Vargani","अपेक्षित वर्गणी",d.expected_vargani)}${c("Vargani Collected","जमा वर्गणी",d.collected_vargani)}${c("Pending Vargani","बाकी वर्गणी",d.pending_vargani)}${c("Donations","देणग्या",d.total_donations)}${c("Other Income","इतर उत्पन्न",d.total_other_income)}${c("Total Expenses","एकूण खर्च",d.total_expenses)}${c("Available Balance","उपलब्ध शिल्लक",d.available_balance)}${c("Pending Expense Approvals","प्रलंबित खर्च मंजुऱ्या",d.pending_expense_approvals,1)}</div><p class="mu">${h("All figures are calculated from the ledger.","सर्व आकडे खतावणीतून आपोआप मोजले जातात.")}</p>`}
+
+async function loadRows(){if(!fy){rows=[];return}const{data,error}=await sb.from("v_vargani_assessment").select("*").eq("financial_year_id",fy.id).is("event_id",null).order("member_code");if(error)throw error;rows=data||[]}
+function memList(){const k=q.toLowerCase(),L=rows.filter(r=>!k||[r.name,r.phone,r.area,r.member_code].join(" ").toLowerCase().includes(k));
+  return L.length?L.map(r=>`<div class="card" style="${r.is_active?"":"opacity:.55"}"><div class="row"><b>${esc(r.name)}</b><span class="chip ${r.status}">${h(...ST[r.status])}</span></div><div class="mu">${esc(r.member_code)} · ${esc(r.phone)} · ${esc(r.area)}</div><div class="row" style="margin-top:6px"><span>${inr(r.paid)} / ${inr(r.expected)}</span><span class="${r.pending>0?"pending":"paid"}">${h("Pending","बाकी")}: ${inr(r.pending)}</span></div></div>`).join(""):`<p class="mu">${h("Nothing yet","अजून काही नाही")}</p>`}
+async function mems(){await loadRows();
+  const form=canW()?`<div class="card"><b>${h("Add member","सदस्य जोडा")}</b><input id="n" placeholder="${h("Name","नाव")}"><input id="p" type="tel" inputmode="numeric" maxlength="10" placeholder="${h("Mobile (10 digits)","मोबाईल (१० अंक)")}"><input id="a" placeholder="${h("Area / building","परिसर / इमारत")}"><input id="e" type="number" inputmode="decimal" placeholder="${h("Expected Vargani (₹)","अपेक्षित वर्गणी (₹)")}"><div class="err" id="er"></div><button onclick="addM()">${h("Save","जतन करा")}</button></div>`:"";
+  return`${form}<input id="sq" placeholder="${h("Search name, mobile, area, ID","नाव, मोबाईल, परिसर, ID शोधा")}" value="${esc(q)}" oninput="q=this.value;$('ml').innerHTML=memList()"><div id="ml">${memList()}</div>`}
+async function addM(){const n=$("n").value.trim(),p=$("p").value.trim(),e=parseFloat($("e").value);
+  if(!n||!/^\d{10}$/.test(p)||isNaN(e)||e<0){$("er").textContent=h("Enter a valid name, 10-digit mobile and amount","योग्य नाव, १० अंकी मोबाईल व रक्कम टाका");return}
+  const{data:m,error}=await sb.from("members").insert({name:n,phone:p,area:$("a").value.trim()}).select("id").single();if(error)return fail(error);
+  const r2=await sb.from("vargani_assessments").insert({financial_year_id:fy.id,member_id:m.id,expected_amount:e});if(r2.error)return fail(r2.error);render()}
+
+async function vars(){await loadRows();
+  const{data:P,error}=await sb.from("payments").select("*, members(name,phone)").order("created_at",{ascending:false}).limit(50);if(error)throw error;
+  const act=rows.filter(r=>r.is_active&&r.pending>0);
+  const form=canW()?`<div class="card"><b>${h("Record payment","पेमेंट नोंदवा")}</b><select id="vm">${act.map(r=>`<option value="${r.member_id}">${esc(r.name)} (${h("pending","बाकी")} ${inr(r.pending)})</option>`).join("")}</select><input id="va" type="number" inputmode="decimal" placeholder="${h("Amount (₹)","रक्कम (₹)")}"><select id="vt">${METHODS.map(x=>`<option value="${x[0]}">${h(x[1],x[2])}</option>`).join("")}</select><input id="vr" placeholder="${h("Reference no.","संदर्भ क्र.")}"><input id="vd" type="date" value="${today()}"><div class="err" id="er"></div><button onclick="pay()">${h("Save","जतन करा")}</button></div>`:"";
+  window._P=P;
+  return`${form}<b>${h("Payment history","पेमेंट इतिहास")}</b><div style="margin-top:8px">${(P||[]).map(p=>`<div class="card"><div class="row"><b>${esc(p.members&&p.members.name)}</b><b class="${p.status==="valid"?"paid":"bad"}">${inr(p.amount)}</b></div><div class="mu">${esc(p.receipt_no)} · ${dt(p.paid_on)} · ${mname(p.method)}${p.reference_no?" · "+esc(p.reference_no):""}</div><div class="row" style="margin-top:6px;justify-content:flex-start"><button class="g s" onclick="showR('${p.id}')">${h("Receipt","पावती")}</button>${p.status==="valid"&&isA()?`<button class="g s" onclick="rev('${p.id}')">${h("Reverse","रद्द करा")}</button>`:""}${p.status!=="valid"?`<span class="chip bad">${h("Reversed","रद्द")}</span>`:""}</div></div>`).join("")||`<p class="mu">${h("Nothing yet","अजून काही नाही")}</p>`}</div>`}
+async function pay(){const amt=parseFloat($("va").value);if(!$("vm").value||isNaN(amt)||amt<=0){$("er").textContent=h("Enter a valid amount","योग्य रक्कम टाका");return}
+  const{data,error}=await sb.rpc("record_payment",{p_member:$("vm").value,p_amount:amt,p_method:$("vt").value,p_ref:$("vr").value.trim()||null,p_paid_on:$("vd").value||today()});
+  if(error){$("er").textContent=error.message;return}await render();showR(data.id)}
+async function rev(id){const r=prompt(h("Reason for reversal (required)","रद्द करण्याचे कारण (आवश्यक)"));if(!r)return;
+  const{error}=await sb.rpc("reverse_payment",{p_payment:id,p_reason:r});if(error)return fail(error);render()}
+function showR(id){const p=(window._P||[]).find(x=>x.id===id);if(!p)return;const m=p.members||{};
+  const txt=`${h("Receipt","पावती")} ${p.receipt_no}\n${m.name}\n${h("Amount","रक्कम")}: ${inr(p.amount)} (${mname(p.method)})\n${h("Date","तारीख")}: ${dt(p.paid_on)}`;
+  $("md").innerHTML=`<div class="modal"><div class="card"><h3 style="margin-top:0">${h("Receipt","पावती")} ${esc(p.receipt_no)}</h3><p class="mu">${h("Record of payment received by the Mandal","मंडळाला मिळालेल्या रकमेची नोंद")}</p><p><b>${esc(m.name)}</b><br>${h("Date","तारीख")}: ${dt(p.paid_on)}<br>${h("Method","पद्धत")}: ${mname(p.method)} ${esc(p.reference_no||"")}<br>${h("Amount","रक्कम")}: <b>${inr(p.amount)}</b></p><button onclick='window.open("https://wa.me/91${m.phone||""}?text="+encodeURIComponent(${JSON.stringify(txt)}),"_blank")'>WhatsApp</button> <button class="g" onclick="print()">${h("Print","प्रिंट")}</button> <button class="g" onclick="$('md').innerHTML=''">${h("Close","बंद")}</button></div></div>`}
+sb.auth.onAuthStateChange(()=>{});boot();
+</script></body></html>
