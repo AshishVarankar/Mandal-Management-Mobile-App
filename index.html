@@ -45,13 +45,13 @@ async function logout(){await sb.auth.signOut();user=prof=fy=null;render()}
 const toggleLang=()=>{lang=lang==="en"?"mr":"en";try{localStorage.setItem("lang",lang)}catch(e){}render()};
 const go=k=>{tab=k;render()};
 const shell=b=>`<header><div><h1>${h("Mandal Manager","मंडळ व्यवस्थापक")}</h1><div class="mu">${esc(prof?prof.name+" · "+prof.role:user?user.email:"")}</div></div><div><button class="g s" onclick="toggleLang()">${h("मराठी","English")}</button> <button class="g s" onclick="logout()">${h("Logout","बाहेर पडा")}</button></div></header><main id="m">${b}</main>
-${prof?`<nav>${[["dash",h("Dashboard","डॅशबोर्ड")],["mem",h("Members","सदस्य")],["var",h("Vargani","वर्गणी")]].map(([k,l])=>`<button class="${tab===k?"on":""}" onclick="go('${k}')">${l}</button>`).join("")}</nav>`:""}`;
+${prof?`<nav>${[["dash",h("Dashboard","डॅशबोर्ड")],["mem",h("Members","सदस्य")],["var",h("Vargani","वर्गणी")],...(prof.role==="member"?[]:[["money",h("Money","जमा-खर्च")]])].map(([k,l])=>`<button class="${tab===k?"on":""}" onclick="go('${k}')">${l}</button>`).join("")}</nav>`:""}`;
 
 async function render(){
   if(!user){app.innerHTML=`<main><div class="card"><h1>${h("Mandal Manager","मंडळ व्यवस्थापक")}</h1><p class="mu">${h("Sign in with the email and password given by the Admin.","Admin ने दिलेला ईमेल व पासवर्ड वापरून लॉगिन करा.")}</p><input id="em" type="email" placeholder="Email" autocomplete="username"><input id="pw" type="password" placeholder="${h("Password","पासवर्ड")}" autocomplete="current-password" onkeydown="if(event.key==='Enter')login()"><div class="err" id="er"></div><button onclick="login()">${h("Sign in","लॉगिन")}</button> <button class="g s" onclick="toggleLang()">${h("मराठी","English")}</button></div></main>`;return}
   if(!prof){app.innerHTML=shell(`<div class="card">${h("Your login is not linked to a Mandal yet. The first user must run bootstrap_mandal; other users must be added by the Admin (add_user).","तुमचा लॉगिन अजून मंडळाशी जोडलेला नाही. पहिल्या वापरकर्त्याने bootstrap_mandal चालवावे; इतरांना Admin ने add_user ने जोडावे.")}</div>`);return}
   app.innerHTML=shell(`<p class="mu">…</p>`);
-  try{$("m").innerHTML=tab==="dash"?await dash():tab==="mem"?await mems():await vars()}catch(e){$("m").innerHTML=`<div class="card err">${esc(e.message||e)}</div>`}}
+  try{$("m").innerHTML=tab==="dash"?await dash():tab==="mem"?await mems():tab==="money"?await money():await vars()}catch(e){$("m").innerHTML=`<div class="card err">${esc(e.message||e)}</div>`}}
 
 async function dash(){
   if(!fy)return`<div class="card">${h("No financial year covers today. Ask the Admin to add one.","आजसाठी आर्थिक वर्ष नाही. Admin ला जोडायला सांगा.")}</div>`;
@@ -84,5 +84,26 @@ async function rev(id){const r=prompt(h("Reason for reversal (required)","रद
 function showR(id){const p=(window._P||[]).find(x=>x.id===id);if(!p)return;const m=p.members||{};
   const txt=`${h("Receipt","पावती")} ${p.receipt_no}\n${m.name}\n${h("Amount","रक्कम")}: ${inr(p.amount)} (${mname(p.method)})\n${h("Date","तारीख")}: ${dt(p.paid_on)}`;
   $("md").innerHTML=`<div class="modal"><div class="card"><h3 style="margin-top:0">${h("Receipt","पावती")} ${esc(p.receipt_no)}</h3><p class="mu">${h("Record of payment received by the Mandal","मंडळाला मिळालेल्या रकमेची नोंद")}</p><p><b>${esc(m.name)}</b><br>${h("Date","तारीख")}: ${dt(p.paid_on)}<br>${h("Method","पद्धत")}: ${mname(p.method)} ${esc(p.reference_no||"")}<br>${h("Amount","रक्कम")}: <b>${inr(p.amount)}</b></p><button onclick='window.open("https://wa.me/91${m.phone||""}?text="+encodeURIComponent(${JSON.stringify(txt)}),"_blank")'>WhatsApp</button> <button class="g" onclick="print()">${h("Print","प्रिंट")}</button> <button class="g" onclick="$('md').innerHTML=''">${h("Close","बंद")}</button></div></div>`}
+let CAT=[];const cname=k=>{const c=CAT.find(x=>x.key===k);return c?h(c.name_en,c.name_mr):k};
+const SL={valid:["Recorded","नोंदवले"],pending:["Pending approval","मंजुरी प्रलंबित"],approved:["Approved","मंजूर"],rejected:["Rejected","नाकारले"],reversed:["Reversed","रद्द"]};
+async function money(){
+  if(!CAT.length)CAT=(await sb.from("categories").select("*")).data||[];
+  const[{data:I,error:e1},{data:E,error:e2}]=await Promise.all([sb.from("income_transactions").select("*").order("created_at",{ascending:false}).limit(50),sb.from("expense_transactions").select("*").order("created_at",{ascending:false}).limit(50)]);
+  if(e1||e2)throw e1||e2;
+  const L=[...(I||[]).map(x=>({...x,k:"income"})),...(E||[]).map(x=>({...x,k:"expense"}))].sort((a,b)=>b.created_at.localeCompare(a.created_at));
+  window._opts=k=>CAT.filter(c=>c.kind===k).map(c=>`<option value="${c.key}">${h(c.name_en,c.name_mr)}</option>`).join("");
+  const form=`<div class="card"><b>${h("New entry","नवीन नोंद")}</b><select id="tk" onchange="$('tc').innerHTML=_opts(this.value)">${canW()?`<option value="income">${h("Income","उत्पन्न")}</option>`:""}<option value="expense" selected>${h("Expense","खर्च")}</option></select><select id="tc">${_opts("expense")}</select><input id="ta" type="number" inputmode="decimal" placeholder="${h("Amount (₹)","रक्कम (₹)")}"><input id="tp" placeholder="${h("Paid to / received from","कोणाला दिले / कोणाकडून मिळाले")}"><select id="tm">${METHODS.map(x=>`<option value="${x[0]}">${h(x[1],x[2])}</option>`).join("")}</select><input id="td" type="date" value="${today()}"><input id="tn" placeholder="${h("Description","तपशील")}"><div class="err" id="er"></div><button onclick="addTx()">${h("Save","जतन करा")}</button></div>`;
+  const list=L.map(x=>{const good=x.status==="valid"||x.status==="approved",btn=isA()?(x.status==="pending"?`<button class="s" onclick="decide('${x.id}',true)">${h("Approve","मंजूर")}</button><button class="g s" onclick="decide('${x.id}',false)">${h("Reject","नाकारा")}</button>`:good?`<button class="g s" onclick="revTx('${x.id}','${x.k}')">${h("Reverse","रद्द करा")}</button>`:""):"";
+    return`<div class="card"><div class="row"><b>${esc(cname(x.category))}</b><b class="${x.k==="income"?"paid":"bad"}">${x.k==="income"?"+":"−"}${inr(x.amount)}</b></div><div class="mu">${dt(x.txn_date)} · ${mname(x.method)} · ${esc(x.received_from||x.paid_to)}${x.description?" · "+esc(x.description):""}</div><div class="row" style="margin-top:6px;justify-content:flex-start"><span class="chip ${good?"paid":x.status==="pending"?"partial":"bad"}">${h(...SL[x.status])}</span>${btn}</div></div>`}).join("");
+  return`${form}<p class="mu">${h("Expenses above the Admin's limit wait for approval and are not counted until approved. You cannot approve your own entry.","Admin च्या मर्यादेपेक्षा जास्त खर्च मंजुरीसाठी थांबतात व मंजूर होईपर्यंत मोजले जात नाहीत. स्वतःची नोंद स्वतः मंजूर करता येत नाही.")}</p>${list||`<p class="mu">${h("Nothing yet","अजून काही नाही")}</p>`}`}
+async function addTx(){const a=parseFloat($("ta").value),k=$("tk").value,who=$("tp").value.trim();
+  if(isNaN(a)||a<=0||!who){$("er").textContent=h("Enter a valid amount and name","योग्य रक्कम व नाव टाका");return}
+  const args={p_cat:$("tc").value,p_amount:a,p_method:$("tm").value,p_date:$("td").value||today(),p_desc:$("tn").value.trim()||null};
+  const{error}=k==="income"?await sb.rpc("add_income",{...args,p_party:who}):await sb.rpc("add_expense",{...args,p_paid_to:who});
+  if(error){$("er").textContent=error.message;return}render()}
+async function decide(id,ok){let c=null;if(!ok){c=prompt(h("Reason for rejecting (required)","नाकारण्याचे कारण (आवश्यक)"));if(!c)return}
+  const{error}=await sb.rpc("decide_expense",{p_id:id,p_approve:ok,p_comment:c});if(error)return fail(error);render()}
+async function revTx(id,k){const r=prompt(h("Reason for reversal (required)","रद्द करण्याचे कारण (आवश्यक)"));if(!r)return;
+  const{error}=await sb.rpc(k==="income"?"reverse_income":"reverse_expense",{p_id:id,p_reason:r});if(error)return fail(error);render()}
 sb.auth.onAuthStateChange(()=>{});boot();
 </script></body></html>
