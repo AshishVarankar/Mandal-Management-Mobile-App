@@ -18,9 +18,12 @@ nav button{flex:1;background:none;color:var(--mu);border-radius:0;padding:14px 4
 .row{display:flex;justify-content:space-between;gap:8px;align-items:center}
 .modal{position:fixed;inset:0;background:#0008;display:flex;align-items:center;justify-content:center;padding:16px;z-index:9}.modal .card{width:100%;max-width:420px;margin:0}
 .err{color:var(--bad);font-size:14px;min-height:20px}
+nav button{font-size:12px;padding:14px 2px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:6px 8px;border-bottom:1px solid var(--bd);text-align:left;white-space:nowrap}td.n{text-align:right}th{background:var(--bg)}
+@media print{header,nav,.np{display:none}body,.card{background:#fff;color:#000}th{background:#eee}}
 </style></head><body>
 <div id="app"></div><div id="md"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 const SB_URL="https://hvofiustdbhigeycomfi.supabase.co",SB_KEY="sb_publishable_EBRJl43NXlzTYY1JMgcDKA_FpF55Ie4"; // publishable key: safe in the browser. NEVER put the secret / service_role key here.
 const sb=supabase.createClient(SB_URL,SB_KEY);
@@ -45,13 +48,13 @@ async function logout(){await sb.auth.signOut();user=prof=fy=null;render()}
 const toggleLang=()=>{lang=lang==="en"?"mr":"en";try{localStorage.setItem("lang",lang)}catch(e){}render()};
 const go=k=>{tab=k;render()};
 const shell=b=>`<header><div><h1>${h("Mandal Manager","मंडळ व्यवस्थापक")}</h1><div class="mu">${esc(prof?prof.name+" · "+prof.role:user?user.email:"")}</div></div><div><button class="g s" onclick="toggleLang()">${h("मराठी","English")}</button> <button class="g s" onclick="logout()">${h("Logout","बाहेर पडा")}</button></div></header><main id="m">${b}</main>
-${prof?`<nav>${[["dash",h("Dashboard","डॅशबोर्ड")],["mem",h("Members","सदस्य")],["var",h("Vargani","वर्गणी")],...(prof.role==="member"?[]:[["money",h("Money","जमा-खर्च")]])].map(([k,l])=>`<button class="${tab===k?"on":""}" onclick="go('${k}')">${l}</button>`).join("")}</nav>`:""}`;
+${prof?`<nav>${[["dash",h("Dashboard","डॅशबोर्ड")],["mem",h("Members","सदस्य")],["var",h("Vargani","वर्गणी")],...(prof.role==="member"?[]:[["money",h("Money","जमा-खर्च")],["events",h("Events","कार्यक्रम")],["reports",h("Reports","अहवाल")]])].map(([k,l])=>`<button class="${tab===k?"on":""}" onclick="go('${k}')">${l}</button>`).join("")}</nav>`:""}`;
 
 async function render(){
   if(!user){app.innerHTML=`<main><div class="card"><h1>${h("Mandal Manager","मंडळ व्यवस्थापक")}</h1><p class="mu">${h("Sign in with the email and password given by the Admin.","Admin ने दिलेला ईमेल व पासवर्ड वापरून लॉगिन करा.")}</p><input id="em" type="email" placeholder="Email" autocomplete="username"><input id="pw" type="password" placeholder="${h("Password","पासवर्ड")}" autocomplete="current-password" onkeydown="if(event.key==='Enter')login()"><div class="err" id="er"></div><button onclick="login()">${h("Sign in","लॉगिन")}</button> <button class="g s" onclick="toggleLang()">${h("मराठी","English")}</button></div></main>`;return}
   if(!prof){app.innerHTML=shell(`<div class="card">${h("Your login is not linked to a Mandal yet. The first user must run bootstrap_mandal; other users must be added by the Admin (add_user).","तुमचा लॉगिन अजून मंडळाशी जोडलेला नाही. पहिल्या वापरकर्त्याने bootstrap_mandal चालवावे; इतरांना Admin ने add_user ने जोडावे.")}</div>`);return}
   app.innerHTML=shell(`<p class="mu">…</p>`);
-  try{$("m").innerHTML=tab==="dash"?await dash():tab==="mem"?await mems():tab==="money"?await money():await vars()}catch(e){$("m").innerHTML=`<div class="card err">${esc(e.message||e)}</div>`}}
+  try{$("m").innerHTML=tab==="dash"?await dash():tab==="mem"?await mems():tab==="money"?await money():tab==="events"?await events():tab==="reports"?await reportsView():await vars();if(tab==="reports")rp()}catch(e){$("m").innerHTML=`<div class="card err">${esc(e.message||e)}</div>`}}
 
 async function dash(){
   if(!fy)return`<div class="card">${h("No financial year covers today. Ask the Admin to add one.","आजसाठी आर्थिक वर्ष नाही. Admin ला जोडायला सांगा.")}</div>`;
@@ -88,22 +91,83 @@ let CAT=[];const cname=k=>{const c=CAT.find(x=>x.key===k);return c?h(c.name_en,c
 const SL={valid:["Recorded","नोंदवले"],pending:["Pending approval","मंजुरी प्रलंबित"],approved:["Approved","मंजूर"],rejected:["Rejected","नाकारले"],reversed:["Reversed","रद्द"]};
 async function money(){
   if(!CAT.length)CAT=(await sb.from("categories").select("*")).data||[];
+  const EVs=fy?((await sb.from("events").select("id,name").eq("financial_year_id",fy.id)).data||[]):[];
   const[{data:I,error:e1},{data:E,error:e2}]=await Promise.all([sb.from("income_transactions").select("*").order("created_at",{ascending:false}).limit(50),sb.from("expense_transactions").select("*").order("created_at",{ascending:false}).limit(50)]);
   if(e1||e2)throw e1||e2;
   const L=[...(I||[]).map(x=>({...x,k:"income"})),...(E||[]).map(x=>({...x,k:"expense"}))].sort((a,b)=>b.created_at.localeCompare(a.created_at));
   window._opts=k=>CAT.filter(c=>c.kind===k).map(c=>`<option value="${c.key}">${h(c.name_en,c.name_mr)}</option>`).join("");
-  const form=`<div class="card"><b>${h("New entry","नवीन नोंद")}</b><select id="tk" onchange="$('tc').innerHTML=_opts(this.value)">${canW()?`<option value="income">${h("Income","उत्पन्न")}</option>`:""}<option value="expense" selected>${h("Expense","खर्च")}</option></select><select id="tc">${_opts("expense")}</select><input id="ta" type="number" inputmode="decimal" placeholder="${h("Amount (₹)","रक्कम (₹)")}"><input id="tp" placeholder="${h("Paid to / received from","कोणाला दिले / कोणाकडून मिळाले")}"><select id="tm">${METHODS.map(x=>`<option value="${x[0]}">${h(x[1],x[2])}</option>`).join("")}</select><input id="td" type="date" value="${today()}"><input id="tn" placeholder="${h("Description","तपशील")}"><div class="err" id="er"></div><button onclick="addTx()">${h("Save","जतन करा")}</button></div>`;
+  const form=`<div class="card"><b>${h("New entry","नवीन नोंद")}</b><select id="tk" onchange="$('tc').innerHTML=_opts(this.value)">${canW()?`<option value="income">${h("Income","उत्पन्न")}</option>`:""}<option value="expense" selected>${h("Expense","खर्च")}</option></select><select id="tc">${_opts("expense")}</select><input id="ta" type="number" inputmode="decimal" placeholder="${h("Amount (₹)","रक्कम (₹)")}"><input id="tp" placeholder="${h("Paid to / received from","कोणाला दिले / कोणाकडून मिळाले")}"><select id="tm">${METHODS.map(x=>`<option value="${x[0]}">${h(x[1],x[2])}</option>`).join("")}</select><select id="tv"><option value="">${h("General (no event)","सर्वसाधारण (कार्यक्रम नाही)")}</option>${EVs.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join("")}</select><input id="td" type="date" value="${today()}"><input id="tn" placeholder="${h("Description","तपशील")}"><div class="err" id="er"></div><button onclick="addTx()">${h("Save","जतन करा")}</button></div>`;
   const list=L.map(x=>{const good=x.status==="valid"||x.status==="approved",btn=isA()?(x.status==="pending"?`<button class="s" onclick="decide('${x.id}',true)">${h("Approve","मंजूर")}</button><button class="g s" onclick="decide('${x.id}',false)">${h("Reject","नाकारा")}</button>`:good?`<button class="g s" onclick="revTx('${x.id}','${x.k}')">${h("Reverse","रद्द करा")}</button>`:""):"";
     return`<div class="card"><div class="row"><b>${esc(cname(x.category))}</b><b class="${x.k==="income"?"paid":"bad"}">${x.k==="income"?"+":"−"}${inr(x.amount)}</b></div><div class="mu">${dt(x.txn_date)} · ${mname(x.method)} · ${esc(x.received_from||x.paid_to)}${x.description?" · "+esc(x.description):""}</div><div class="row" style="margin-top:6px;justify-content:flex-start"><span class="chip ${good?"paid":x.status==="pending"?"partial":"bad"}">${h(...SL[x.status])}</span>${btn}</div></div>`}).join("");
   return`${form}<p class="mu">${h("Expenses above the Admin's limit wait for approval and are not counted until approved. You cannot approve your own entry.","Admin च्या मर्यादेपेक्षा जास्त खर्च मंजुरीसाठी थांबतात व मंजूर होईपर्यंत मोजले जात नाहीत. स्वतःची नोंद स्वतः मंजूर करता येत नाही.")}</p>${list||`<p class="mu">${h("Nothing yet","अजून काही नाही")}</p>`}`}
 async function addTx(){const a=parseFloat($("ta").value),k=$("tk").value,who=$("tp").value.trim();
   if(isNaN(a)||a<=0||!who){$("er").textContent=h("Enter a valid amount and name","योग्य रक्कम व नाव टाका");return}
-  const args={p_cat:$("tc").value,p_amount:a,p_method:$("tm").value,p_date:$("td").value||today(),p_desc:$("tn").value.trim()||null};
+  const args={p_cat:$("tc").value,p_amount:a,p_method:$("tm").value,p_date:$("td").value||today(),p_desc:$("tn").value.trim()||null,p_event:$("tv").value||null};
   const{error}=k==="income"?await sb.rpc("add_income",{...args,p_party:who}):await sb.rpc("add_expense",{...args,p_paid_to:who});
   if(error){$("er").textContent=error.message;return}render()}
 async function decide(id,ok){let c=null;if(!ok){c=prompt(h("Reason for rejecting (required)","नाकारण्याचे कारण (आवश्यक)"));if(!c)return}
   const{error}=await sb.rpc("decide_expense",{p_id:id,p_approve:ok,p_comment:c});if(error)return fail(error);render()}
 async function revTx(id,k){const r=prompt(h("Reason for reversal (required)","रद्द करण्याचे कारण (आवश्यक)"));if(!r)return;
   const{error}=await sb.rpc(k==="income"?"reverse_income":"reverse_expense",{p_id:id,p_reason:r});if(error)return fail(error);render()}
+const r2=n=>Math.round(n*100)/100,sum=(R_,i)=>r2(R_.reduce((a,r)=>a+r[i],0));
+async function events(){
+  if(!fy)return`<div class="card">${h("No financial year covers today.","आजसाठी आर्थिक वर्ष नाही.")}</div>`;
+  const{data,error}=await sb.from("v_event_summary").select("*").eq("financial_year_id",fy.id);if(error)throw error;
+  const form=canW()?`<div class="card"><b>${h("New event","नवीन कार्यक्रम")}</b><input id="en" placeholder="${h("Event name","कार्यक्रमाचे नाव")}"><div class="k">${h("Start date","सुरुवात तारीख")}</div><input id="es" type="date"><div class="k">${h("End date","शेवट तारीख")}</div><input id="ee" type="date"><input id="eb" type="number" inputmode="decimal" placeholder="${h("Budget (₹)","अंदाजपत्रक (₹)")}"><input id="ex" type="number" inputmode="decimal" placeholder="${h("Expected collections (₹)","अपेक्षित जमा (₹)")}"><div class="err" id="er"></div><button onclick="addEv()">${h("Save","जतन करा")}</button></div>`:"";
+  const L=[...(data||[])].sort((a,b)=>(a.event_id===null)-(b.event_id===null)).map(e=>{const over=e.budget>0&&e.total_expenses>e.budget,pct=e.budget>0?Math.min(100,e.total_expenses/e.budget*100):0,nm=e.event_id?esc(e.name):h("General (no event)","सर्वसाधारण (कार्यक्रम नाही)");
+    return`<div class="card"><b>${nm}</b><div class="row" style="margin-top:8px"><span class="k">${h("Budget","अंदाजपत्रक")}</span><b>${inr(e.budget)}</b></div><div class="row"><span class="k">${h("Expenses","खर्च")}</span><b class="${over?"bad":""}">${inr(e.total_expenses)}</b></div><div style="height:8px;border-radius:9px;background:var(--bd);margin:6px 0"><div style="height:8px;border-radius:9px;width:${pct}%;background:var(${over?"--bad":"--ok"})"></div></div><div class="row"><span class="k">${h("Expected collections","अपेक्षित जमा")}</span><b>${inr(e.expected_collection)}</b></div><div class="row"><span class="k">${h("Actual collections","प्रत्यक्ष जमा")}</span><b>${inr(e.actual_collection)}</b></div><div class="row"><span class="k">${h("Remaining balance","उरलेली शिल्लक")}</span><b class="${e.remaining_balance<0?"bad":"paid"}">${inr(e.remaining_balance)}</b></div>${over?`<div class="err">${h("Over budget","बजेटपेक्षा जास्त खर्च")}</div>`:""}</div>`}).join("");
+  return`${form}${L}`}
+async function addEv(){const n=$("en").value.trim(),b=parseFloat($("eb").value)||0,x=parseFloat($("ex").value)||0,s=$("es").value,e=$("ee").value;
+  if(!n||b<0||x<0||(s&&e&&e<s)){$("er").textContent=h("Enter a valid name, dates and amounts","योग्य नाव, तारखा व रक्कम टाका");return}
+  const{error}=await sb.from("events").insert({financial_year_id:fy.id,name:n,start_date:s||null,end_date:e||null,budget:b,expected_collection:x});if(error)return fail(error);render()}
+
+let R={type:"member",from:"",to:"",ev:"*",mem:""},EV=[];
+const num=v=>typeof v==="number"?v.toLocaleString("en-IN",{maximumFractionDigits:2}):esc(v),inR=d=>(!R.from||d>=R.from)&&(!R.to||d<=R.to);
+const evq=q=>R.ev==="*"?q:R.ev===""?q.is("event_id",null):q.eq("event_id",R.ev);
+async function build(){
+  const T=R.type,tot=h("Total","एकूण");let title,head,rows=[];
+  if(T==="member"||T==="pending"){
+    const{data,error}=await sb.from("v_vargani_assessment").select("*").eq("financial_year_id",fy.id).is("event_id",null).order("member_code");if(error)throw error;
+    title=T==="member"?h("Member-wise Vargani","सदस्यनिहाय वर्गणी"):h("Pending payments","बाकी वर्गणी");
+    head=[h("ID","क्र."),h("Name","नाव"),h("Mobile","मोबाईल"),h("Area","परिसर"),h("Expected (₹)","अपेक्षित (₹)"),h("Paid (₹)","भरले (₹)"),h("Pending (₹)","बाकी (₹)"),h("Status","स्थिती")];
+    rows=(data||[]).filter(r=>T==="member"||(r.is_active&&r.pending>0)).map(r=>[r.member_code,r.name,r.phone||"",r.area||"",+r.expected,+r.paid,+r.pending,h(...ST[r.status])]);
+    if(rows.length)rows.push([tot,"","","",sum(rows,4),sum(rows,5),sum(rows,6),""]);
+  }else if(T==="history"){
+    title=h("Member payment history","सदस्य पेमेंट इतिहास");head=[h("Date","तारीख"),h("Receipt","पावती"),h("Method","पद्धत"),h("Reference","संदर्भ"),h("Amount (₹)","रक्कम (₹)"),h("Status","स्थिती")];
+    if(R.mem){const{data,error}=await sb.from("payments").select("*").eq("member_id",R.mem).order("paid_on");if(error)throw error;
+      rows=(data||[]).filter(p=>inR(p.paid_on)).map(p=>[dt(p.paid_on),p.receipt_no,mname(p.method),p.reference_no||"",+p.amount,p.status==="valid"?h("Valid","वैध"):h("Reversed","रद्द")])}
+  }else if(T==="expcat"){
+    title=h("Category-wise expenses","वर्गवार खर्च");head=[h("Category","प्रकार"),h("Amount (₹)","रक्कम (₹)"),h("Share","टक्केवारी")];
+    const{data,error}=await evq(sb.from("expense_transactions").select("category,amount,txn_date,event_id").eq("status","approved").eq("financial_year_id",fy.id));if(error)throw error;
+    const G={};(data||[]).filter(r=>inR(r.txn_date)).forEach(r=>G[r.category]=(G[r.category]||0)+ +r.amount);
+    const t=r2(Object.values(G).reduce((a,v)=>a+v,0));rows=Object.entries(G).sort((a,b)=>b[1]-a[1]).map(([k,v])=>[cname(k),r2(v),t?(v/t*100).toFixed(1)+"%":""]);if(rows.length)rows.push([tot,t,""]);
+  }else if(T==="event"){
+    title=h("Event-wise income & expense","कार्यक्रमनिहाय जमा-खर्च");head=[h("Event","कार्यक्रम"),h("Budget (₹)","अंदाजपत्रक (₹)"),h("Expected (₹)","अपेक्षित (₹)"),h("Collected (₹)","जमा (₹)"),h("Expenses (₹)","खर्च (₹)"),h("Balance (₹)","शिल्लक (₹)"),h("Budget used","बजेट वापर")];
+    const{data,error}=await sb.from("v_event_summary").select("*").eq("financial_year_id",fy.id);if(error)throw error;
+    rows=(data||[]).map(e=>[e.event_id?e.name:h("General","सर्वसाधारण"),+e.budget,+e.expected_collection,+e.actual_collection,+e.total_expenses,+e.remaining_balance,e.budget_used_pct==null?"":e.budget_used_pct+"%"]);
+  }else if(T==="monthly"){
+    title=h("Monthly income & expense","मासिक जमा-खर्च");head=[h("Month","महिना"),h("Income (₹)","जमा (₹)"),h("Expense (₹)","खर्च (₹)"),h("Net (₹)","निव्वळ (₹)")];
+    const{data,error}=await evq(sb.from("ledger_entries").select("entry_date,account,debit,credit").eq("financial_year_id",fy.id));if(error)throw error;
+    const M={};(data||[]).filter(r=>inR(r.entry_date)).forEach(r=>{const k=r.entry_date.slice(0,7);M[k]=M[k]||[0,0];
+      if(["vargani_income","donation_income","other_income"].includes(r.account))M[k][0]+=r.credit-r.debit;else if(r.account==="expense")M[k][1]+=r.debit-r.credit});
+    rows=Object.keys(M).sort().map(k=>[k.slice(5)+"/"+k.slice(0,4),r2(M[k][0]),r2(M[k][1]),r2(M[k][0]-M[k][1])]);if(rows.length)rows.push([tot,sum(rows,1),sum(rows,2),sum(rows,3)]);
+  }else{
+    title=h("Cash & bank ledger (opening to closing balance)","रोख व बँक खतावणी");head=[h("Date","तारीख"),h("Account","खाते"),h("Source","स्रोत"),h("Category","प्रकार"),h("In (₹)","जमा (₹)"),h("Out (₹)","खर्च (₹)"),h("Balance (₹)","शिल्लक (₹)")];
+    const{data,error}=await sb.from("v_cash_ledger").select("*").eq("financial_year_id",fy.id).order("account").order("entry_date").order("entry_id");if(error)throw error;
+    rows=(data||[]).filter(r=>inR(r.entry_date)).map(r=>[dt(r.entry_date),r.account==="cash"?h("Cash","रोख"):h("Bank","बँक"),r.source_table,r.category||"",+r.money_in,+r.money_out,+r.running_balance]);
+  }
+  return{title,head,rows}}
+async function reportsView(){
+  if(!fy)return`<div class="card">${h("No financial year covers today.","आजसाठी आर्थिक वर्ष नाही.")}</div>`;
+  await loadRows();if(!CAT.length)CAT=(await sb.from("categories").select("*")).data||[];
+  EV=(await sb.from("events").select("id,name").eq("financial_year_id",fy.id)).data||[];
+  const sl=c=>c?"selected":"",TY=[["ledger","Cash & bank ledger","रोख व बँक खतावणी"],["member","Member-wise Vargani","सदस्यनिहाय वर्गणी"],["pending","Pending payments","बाकी वर्गणी"],["history","Member payment history","सदस्य पेमेंट इतिहास"],["expcat","Category-wise expenses","वर्गवार खर्च"],["event","Event-wise income & expense","कार्यक्रमनिहाय जमा-खर्च"],["monthly","Monthly income & expense","मासिक जमा-खर्च"]];
+  return`<div class="card np"><select onchange="R.type=this.value;rp()">${TY.map(x=>`<option value="${x[0]}" ${sl(R.type===x[0])}>${h(x[1],x[2])}</option>`).join("")}</select><div class="k">${h("From","पासून")}</div><input type="date" value="${R.from}" onchange="R.from=this.value;rp()"><div class="k">${h("To","पर्यंत")}</div><input type="date" value="${R.to}" onchange="R.to=this.value;rp()"><select onchange="R.ev=this.value;rp()"><option value="*" ${sl(R.ev==="*")}>${h("All events","सर्व कार्यक्रम")}</option><option value="" ${sl(R.ev==="")}>${h("General (no event)","सर्वसाधारण")}</option>${EV.map(e=>`<option value="${e.id}" ${sl(R.ev===e.id)}>${esc(e.name)}</option>`).join("")}</select><select onchange="R.mem=this.value;rp()"><option value="">${h("Member (for history)","सदस्य (इतिहासासाठी)")}</option>${rows.map(m=>`<option value="${m.member_id}" ${sl(R.mem===m.member_id)}>${esc(m.name)}</option>`).join("")}</select></div><div id="rp"></div>`}
+async function rp(){const box=$("rp");box.innerHTML=`<p class="mu">…</p>`;
+  try{const b=await build();window._B=b;
+    box.innerHTML=`<h3 style="margin:8px 0 2px">${b.title}</h3><div class="mu">${esc(fy.label)} · ${R.from?dt(R.from):"…"} – ${R.to?dt(R.to):"…"}</div><div class="np row" style="justify-content:flex-start;margin:8px 0"><button onclick="xl()">Excel</button><button class="g" onclick="print()">PDF / ${h("Print","प्रिंट")}</button></div><div style="overflow-x:auto"><table><thead><tr>${b.head.map(x=>`<th>${x}</th>`).join("")}</tr></thead><tbody>${b.rows.map(r=>`<tr>${r.map(v=>`<td class="${typeof v==="number"?"n":""}">${num(v)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>${b.rows.length?"":`<p class="mu">${h("Nothing yet","अजून काही नाही")}</p>`}`}
+  catch(e){box.innerHTML=`<div class="err">${esc(e.message||e)}</div>`}}
+function xl(){if(typeof XLSX==="undefined"){alert("Excel library not loaded");return}const b=window._B;
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([[b.title],[],b.head,...b.rows]),"Report");XLSX.writeFile(wb,"mandal-"+R.type+"-"+today()+".xlsx")}
 sb.auth.onAuthStateChange(()=>{});boot();
 </script></body></html>
